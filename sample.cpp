@@ -1,9 +1,9 @@
 #include "modelerview.h"
 #include "modelerapp.h"
 #include "modelerdraw.h"
+#include "boids.h"
 #include <FL/gl.h>
 #include <string>
-#include <iostream>
 
 #include "modelerglobals.h"
 
@@ -14,16 +14,18 @@ public:
     SampleModel(int x, int y, int w, int h, char *label) 
         : ModelerView(x,y,w,h,label) 
 	{ 
-		m_framerate = 40 * (40/(int (VAL(FRAME_RATE) + 0.5)));
+		m_framerate = 20;
 	}
 
     virtual void draw();
-	void setColor(int);
 	std::string generateGrammar(int);
+	std::string generateAltGrammar(int);
 private:
 	std::string m_rules;
+	std::string m_alt_rules;
 	int m_r_depth;
-	int m_framerate;
+	double m_framerate;
+	std::vector<Boid*> m_boids;
 };
 
 // We need to make a creator function, mostly because of
@@ -38,14 +40,18 @@ ModelerView* createSampleModel(int x, int y, int w, int h, char *label)
  **/
 void SampleModel::draw()
 {
-	// only draw every ((VAL(FRAME_RATE)) frames
-	if (!m_framerate)
+	// if low-fps mode is enabled
+	if(VAL(FRAMERATE))
 	{
-		m_framerate = ((int (VAL(FRAME_RATE) + 0.5)));
-		return;
+		//skip every VAL(FRAMERATE) frames
+		if (m_framerate != 0)
+		{
+			m_framerate--;
+			return;
+		}
+		else
+			m_framerate = 20;
 	}
-	else
-		m_framerate--;
 
     // This call takes care of a lot of the nasty projection 
     // matrix stuff.  Unless you want to fudge directly with the 
@@ -58,23 +64,37 @@ void SampleModel::draw()
 	if(r_depth != m_r_depth)
 	{
 		m_rules = generateGrammar(r_depth); 
+		m_alt_rules = generateAltGrammar(r_depth);
 		m_r_depth = r_depth; // remember setting for the next draw() call
 	}
 
 	// convert color from float to int
 	int leaf_color = int (VAL(L_COLOR) + 0.5);
 	int branch_color = int (VAL(B_COLOR) + 0.5);
+	int boid_color = int (VAL(BOID_COLOR) + 0.5);
+
+	// initialize our boids if we haven't already
+	if(m_boids.empty())
+		m_boids = initializeBoids(m_boids, 8);
+
+	// move & draw the boids
+	glPushMatrix();
+		setColor(boid_color);
+		moveBoids(m_boids);
+		drawBoids(m_boids);
+		setColor(branch_color);
+	glPopMatrix();
 
 	// draw the floor
 	setAmbientColor(.1f,.1f,.1f);
 	setDiffuseColor(COLOR_GHOST_WHITE);
 	glPushMatrix();
-	glTranslated(-5,0,-5);
-	drawBox(10,0.01f,10);
+		glTranslated(-5,0,-5);
+		drawBox(10,0.01f,10);
 	glPopMatrix();
 
 	// draw the plant model
-	//glPushMatrix();
+	glPushMatrix();
 	glTranslated(VAL(XPOS), VAL(YPOS), VAL(ZPOS));
 	glRotated(VAL(ROTATE), 0.0, 1.0, 0.0);
 	glRotated(-90, 1.0, 0.0, 0.0);
@@ -116,7 +136,7 @@ void SampleModel::draw()
 			// pop and rotate the opposite direction
 			case ']': 
 				glPopMatrix(); 
-				if(!VAL(SYMMETRY))
+				if(!VAL(SYMMETRY) && !VAL(STOCH))
 					glRotated(VAL(B_BEND_ANGLE), 0.0, 1.0, 0.0);
 				if(VAL(STOCH) && (rand() % 2) == 1)
 				{
@@ -132,6 +152,70 @@ void SampleModel::draw()
 			default: break;
 		}
 	}
+	glPopMatrix();
+	// draw the other alternate plant as well, if that's enabled
+	if (VAL(ALT_PLANT))
+	{
+		glPushMatrix();
+		glTranslated(VAL(XPOS)+2.0, VAL(YPOS), VAL(ZPOS)+2.0);
+		glScaled(0.5,0.5,0.5);
+		glRotated(VAL(ROTATE), 0.0, 1.0, 0.0);
+		glRotated(-90, 1.0, 0.0, 0.0);
+		setColor(4);
+		// we draw the plant model based on our grammar string
+		for(unsigned int i = 0; i < m_alt_rules.length(); i++)
+		{
+			switch(m_alt_rules[i])
+			{
+				// draw a branch with a leaf
+				case '0':
+					drawCylinder(VAL(HEIGHT), VAL(B_WIDTH), VAL(B_WIDTH)); 
+					glTranslated(0, 0, VAL(HEIGHT));
+					setColor(5);
+					drawSphere(VAL(L_SIZE)); 
+					setColor(4);
+					break;
+				// draw a segment of the main 'stem'
+				case '1': 
+					glRotated(VAL(S_ANGLE), 0.0, 1.0, 1.0); 
+					drawCylinder(VAL(HEIGHT), VAL(B_WIDTH), VAL(B_WIDTH)); 
+					glTranslated(0, 0, VAL(HEIGHT));
+					break;
+				// push and rotate 
+				case '[': 
+					glPushMatrix();
+					if(VAL(STOCH) && (rand() % 2) == 1)
+					{
+						glRotated(-VAL(B_BEND_ANGLE), 0.0, .33, 0.0);
+						glRotated(-VAL(B_ANGLE), 1.0, 0.0, 1.0); 
+					}
+					else
+					{
+						glRotated(VAL(B_BEND_ANGLE), 0.0, 1.0, 0.0);
+						glRotated(VAL(B_ANGLE), 1.0, 0.0, 1.0); 
+					}
+					break;
+				// pop and rotate the opposite direction
+				case ']': 
+					glPopMatrix(); 
+					if(!VAL(SYMMETRY) && !VAL(STOCH))
+						glRotated(VAL(B_BEND_ANGLE), 0.0, 1.0, 0.0);
+					if(VAL(STOCH) && (rand() % 2) == 1)
+					{
+						glRotated(VAL(B_BEND_ANGLE), 0.0, 1.0, 0.0);
+						glRotated(VAL(B_ANGLE), 1.0, 0.0, 1.0); 
+					}
+					else
+					{
+						glRotated(-VAL(B_BEND_ANGLE), 0.0, 1.0, 0.0);
+						glRotated(-VAL(B_ANGLE), 1.0, 0.0, 1.0); 
+					}
+					break;
+				default: break;
+			}
+		}
+		glPopMatrix();
+	}
 }
 
 /** @brief generateGrammar - Generate the grammar for our L-system
@@ -146,7 +230,7 @@ std::string SampleModel::generateGrammar(int r_depth)
 	std::string axiom = "0";
 	// our instructions on how to draw the shape
 	std::string output = axiom;
-	for(int i = 0; i < r_depth - 1; i++)
+	for(int i = 0; i < r_depth; i++)
 	{
 		output.clear();
 		for(unsigned int j = 0; j < axiom.length(); j++)
@@ -165,34 +249,37 @@ std::string SampleModel::generateGrammar(int r_depth)
 	return output;
 }
 
-/** @brief setColor - Set the color of the current model
+/** @brief generateAltGrammar - Generate the alt grammar for our L-system
  *
- * @param int color - the color setting from the control value
+ * @param int r_depth - the depth of recursion
+ * @return string output - the rules for generating our plant
  *
  **/
-void SampleModel::setColor(int color)
+std::string SampleModel::generateAltGrammar(int r_depth)
 {
-	switch(color)
+	// our 'seed' value
+	std::string axiom = "0";
+	// our instructions on how to draw the shape
+	std::string output = axiom;
+	for(int i = 0; i < r_depth; i++)
 	{
-		case 1: setDiffuseColor(COLOR_TURQUOISE); break;
-		case 2: setDiffuseColor(COLOR_ROYAL_BLUE); break;
-		case 3: setDiffuseColor(COLOR_MIDNIGHT_BLUE); break;
-		case 4: setDiffuseColor(COLOR_OLIVE); break;
-		case 5: setDiffuseColor(COLOR_PLUM); break;
-		case 6: setDiffuseColor(COLOR_FOREST_GREEN); break;
-		case 7: setDiffuseColor(COLOR_LAVENDER); break;
-		case 8: setDiffuseColor(COLOR_GOLDENROD); break;
-		case 9: setDiffuseColor(COLOR_WHITE_ROSE); break;
-		case 10: setDiffuseColor(COLOR_LAVENDER); break;
-		case 11: setDiffuseColor(COLOR_SIENNA); break;
-		case 12: setDiffuseColor(COLOR_HOT_PINK); break;
-		case 13: setDiffuseColor(COLOR_CORAL); break;
-		case 14: setDiffuseColor(COLOR_MAROON); break;
-		case 15: setDiffuseColor(COLOR_GOLD); break;
-		case 16: setDiffuseColor(COLOR_SPRING_GREEN); break;
-		default: break;
+		output.clear();
+		for(unsigned int j = 0; j < axiom.length(); j++)
+		{
+			switch(axiom[j])
+			{
+				case '0': output.append("1[0]0"); break;
+				case '1': output.append("111[10]"); break;
+				case '[': output.append("["); break;
+				case ']': output.append("]"); break;
+				default: break;
+			}
+		}
+		axiom = output;
 	}
+	return output;
 }
+
 
 int main()
 {
@@ -200,12 +287,13 @@ int main()
 	// Constructor is ModelerControl(name, minimumvalue, maximumvalue, 
 	// stepsize, defaultvalue)
     ModelerControl controls[NUMCONTROLS];
+	// L-system controls
     controls[XPOS] = ModelerControl("X Position", -5, 5, 0.1f, 0);
     controls[YPOS] = ModelerControl("Y Position", 0, 5, 0.1f, 0);
     controls[ZPOS] = ModelerControl("Z Position", -5, 5, 0.1f, 0);
     controls[HEIGHT] = ModelerControl("Height", .05f, .5f, 0.01f, .2f);
 	controls[ROTATE] = ModelerControl("Rotate", -135, 135, 1, 0);
-	controls[R_DEPTH] = ModelerControl("Recursion Depth", 1, 5, 1, 5);
+	controls[R_DEPTH] = ModelerControl("Recursion Depth", 0, 5, 1, 4);
 	controls[B_ANGLE] = ModelerControl("Branch Angle", -100, 135, 0.1f, 45);
 	controls[B_BEND_ANGLE] = ModelerControl("Branch Bend Angle", -100, 135, 0.1f, -57);
 	controls[SYMMETRY] = ModelerControl("Branch Bend Symmetry", 0, 1, 1, 0);
@@ -215,7 +303,18 @@ int main()
 	controls[B_WIDTH] = ModelerControl("Branch Width", .01f, 0.15f, .01f, .05f);
 	controls[L_SIZE] = ModelerControl("Leaf Size", .05f, 0.2f, 0.01f, 0.1f);
 	controls[STOCH] = ModelerControl("Stochastic", 0, 1, 1, 0);
-    controls[FRAME_RATE] = ModelerControl("Framerate", 40, 0, 1, 40);
+	// boids controls
+	controls[SHOW_DIR] = ModelerControl("View Boids Direction", 0, 1, 1, 0);
+	controls[PERCEPTION] = ModelerControl("Boids Perception Distance", .5f, 4.0f, .01f, 1.35f);
+	controls[FLOCK_D] = ModelerControl("Boids Min Distance", .2f, 3.5f, 0.1f, 0.6f);
+	controls[ADD_WIND] = ModelerControl("Enable Wind", 0, 1, 1, 0);
+	controls[CIRCLE_PLANT] = ModelerControl("Boids Circle Plant", 0, 1, 1, 0);
+	controls[BOID_COLOR] = ModelerControl("Boid Color", 1, 16, 1, 1);
+	controls[FLOCK_RANGE] = ModelerControl("Boid Boundaries", .5f, 5.0f, .1f, 4.5f);
+	controls[FLOCK_SPEED] = ModelerControl("Boid Velocity", .05f, .35f, .01f, .16f);
+	controls[CAN_PERCH] = ModelerControl("Enable Perching", 0, 1, 1, 0);
+	controls[FRAMERATE] = ModelerControl("Low-FPS Mode", 0, 1, 1, 0);
+	controls[ALT_PLANT] = ModelerControl("Generate Alt Plant", 0, 1, 1, 0);
 
 
     ModelerApplication::Instance()->Init(&createSampleModel, controls, NUMCONTROLS);

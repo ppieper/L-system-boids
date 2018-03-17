@@ -138,10 +138,12 @@
     <ClCompile Include="modelerui.cxx" />
     <ClCompile Include="modelerview.cpp" />
     <ClCompile Include="sample.cpp" />
+    <ClCompile Include="boids.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bitmap.h" />
     <ClInclude Include="camera.h" />
+    <ClInclude Include="boids.h" />
     <ClInclude Include="mat.h" />
     <ClInclude Include="modelerapp.h" />
     <ClInclude Include="modelerdraw.h" />
