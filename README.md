@@ -17,11 +17,11 @@ The L-system's recursive generation in action, using a predefined grammar:
    
 ![alt text](screenshots/L-System.gif "L-System")
 
-Some different shapes that can be generated using stochastic grammar:
+The Boids simulation in action--flocking around a target:
 
 ![alt text](screenshots/L-System-alternate-grammar-w-boids.gif "Stochastic L-System")
 
-The Boids simulation in action--flocking around a target:
+Some different shapes that can be generated using stochastic grammar:
 
 ![alt text](screenshots/L-System-stoch.gif "Boids demo")
 
